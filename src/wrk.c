@@ -17,6 +17,7 @@ static struct config {
     uint64_t pipeline;
     uint64_t rate;
     uint64_t delay_ms;
+    uint64_t calibration_daly_ms;
     bool     latency;
     bool     u_latency;
     bool     dynamic;
@@ -66,6 +67,7 @@ static void usage() {
            "                           batches of pipelined ops   \n"
            "                           (as opposed to each op)    \n"
            "    -u, --uniform          Distribute requests uniformly in time\n"
+           "    -C, --calibration <T>  Calibration time           \n"
            "    -v, --version          Print version details      \n"
            "    -R, --rate        <T>  work rate (throughput)     \n"
            "                           in requests/sec (total)    \n"
@@ -286,7 +288,7 @@ void *thread_main(void *arg) {
         aeCreateTimeEvent(loop, i * step, delayed_initial_connect, c, NULL);
     }
 
-    uint64_t calibrate_delay = CALIBRATE_DELAY_MS + (thread->connections * step);
+    uint64_t calibrate_delay = cfg.calibration_daly_ms + (thread->connections * step);
     uint64_t timeout_delay = TIMEOUT_INTERVAL_MS + (thread->connections * step);
 
     aeCreateTimeEvent(loop, calibrate_delay, calibrate, thread, NULL);
@@ -355,7 +357,7 @@ static int calibrate(aeEventLoop *loop, long long id, void *data) {
             thread->latency_histogram, 90.0) / 1000.0L;
     long double interval = MAX(latency * 2, 10);
 
-    if (mean == 0) return CALIBRATE_DELAY_MS;
+    if (mean == 0) return 500;
 
     thread->mean     = (uint64_t) mean;
     hdr_reset(thread->latency_histogram);
@@ -711,6 +713,7 @@ static struct option longopts[] = {
     { "version",        no_argument,       NULL, 'v' },
     { "rate",           required_argument, NULL, 'R' },
     { "uniform",        no_argument,       NULL, 'u' },
+    { "calibration",    required_argument, NULL, 'C' },
     { NULL,             0,                 NULL,  0  }
 };
 
@@ -724,6 +727,7 @@ static int parse_args(struct config *cfg, char **url, struct http_parser_url *pa
     cfg->timeout     = SOCKET_TIMEOUT_MS;
     cfg->rate        = 0;
     cfg->record_all_responses = true;
+    cfg->calibration_daly_ms = CALIBRATE_DELAY_MS;
 
     while ((c = getopt_long(argc, argv, "t:c:d:us:H:T:R:LUBrv?", longopts, NULL)) != -1) {
         switch (c) {
@@ -758,6 +762,9 @@ static int parse_args(struct config *cfg, char **url, struct http_parser_url *pa
             case 'T':
                 if (scan_time(optarg, &cfg->timeout)) return -1;
                 cfg->timeout *= 1000;
+                break;
+            case 'C':
+                if (scan_time(optarg, &cfg->calibration_daly_ms)) return -1;
                 break;
             case 'R':
                 if (scan_metric(optarg, &cfg->rate)) return -1;
